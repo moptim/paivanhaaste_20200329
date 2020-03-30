@@ -15,8 +15,8 @@
 
 #define BALL_COUNT 32
 
-#define SATURATION_COEFF 9.0f
-#define VALUE_COEFF 12.0f
+#define SATURATION_COEFF 12.0f
+#define VALUE_COEFF 14.0f
 
 #define HUE_VELOCITY_FACTOR 0.002f
 
