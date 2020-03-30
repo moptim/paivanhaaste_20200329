@@ -2,7 +2,7 @@
 
 #define MAX_BALL_COUNT 63
 #define PI 3.14159
-#define WARP_FACTOR 10.0
+#define WARP_FACTOR 70.0
 
 layout (location = 0) out vec4 fragColor;
 

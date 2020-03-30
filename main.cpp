@@ -37,9 +37,8 @@
 #define BIAS_BOUNDARY_STRICTNESS 48.0f
 #define TARGET_MAX_VELOCITY 0.05f
 
-
 #define ROT_SPEED_FACTOR   0.10f
-#define WRP_SPEED_FACTOR   1.0f
+#define WRP_SPEED_FACTOR   0.10f
 #define PLP_SPEED_FACTOR   0.03f
 
 struct vec2 {
