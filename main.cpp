@@ -13,6 +13,8 @@
 
 #define LOG_SZ 1024
 
+#define STEP_PER_US_1HZ 1e-8f
+
 #define BALL_COUNT 32
 
 #define SATURATION_COEFF 12.0f
@@ -415,7 +417,13 @@ int main(void)
 	GLuint prg, vao;
 	float time;
 
-	GLuint rndseed = std::chrono::system_clock::now().time_since_epoch().count();
+	GLFWmonitor *monitor;
+	const GLFWvidmode *mode;
+
+	float us = 0.0f;
+	float step_per_us;
+	auto last_frame = std::chrono::steady_clock::now();
+	GLuint rndseed = last_frame.time_since_epoch().count();
 	std::minstd_rand rndgen(rndseed);
 
 	std::uniform_real_distribution<float> startingtime_distr(1e3f, 2e3f);
@@ -431,8 +439,10 @@ int main(void)
 	std::vector<struct rwp_vs> ball_rwp_velocity(num_balls);
 
 	glfwInit();
-	GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-	const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+	monitor = glfwGetPrimaryMonitor();
+	mode    = glfwGetVideoMode(monitor);
+
+	step_per_us = STEP_PER_US_1HZ * (float)mode->refreshRate;
 
 	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
 	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
@@ -480,9 +490,11 @@ int main(void)
 	update_ball_color(prg, num_balls, ball_color.data());
 
 	while (!glfwWindowShouldClose(window)) {
-		time += 0.01f; // TODO TODO
-		move_balls(ball_pos_rad, ball_velocity, rndgen, 0.01f); // TODO add correct time step
-		move_ball_hues(ball_color, ball_hue_velocity, 0.01f);
+		float step = us * step_per_us;
+		time += step; 
+
+		move_balls(ball_pos_rad, ball_velocity, rndgen, step);
+		move_ball_hues(ball_color, ball_hue_velocity, step);
 		rotate_warp_balls(ball_params, ball_rwp_velocity, time);
 		update_aspect_ratio_maybe(prg);
 
@@ -495,6 +507,10 @@ int main(void)
 		draw();
 		glfwSwapBuffers(window);
 		glfwPollEvents();
+
+		auto this_frame = std::chrono::steady_clock::now();
+		us = std::chrono::duration_cast<std::chrono::microseconds>(this_frame - last_frame).count();
+		last_frame = this_frame;
 	}
 out_terminate:
 	glfwTerminate();
