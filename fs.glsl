@@ -22,6 +22,14 @@ float falloff(vec2 a, vec2 b, float r)
 	return pow(r, 2) / dist_sqrd(a, b);
 }
 
+// Copied from https://github.com/hughsk/glsl-hsv2rgb
+vec3 hsv2rgb(vec3 c)
+{
+	vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+	vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+	return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
 void main()
 {
 	fragColor = vec4(uv, 1.0, 1.0);
@@ -34,10 +42,10 @@ void main()
 
 	for (int i = 0; i < num_balls; i++) {
 		vec2 curr_pos   = ball_pos_rad[i].xy;
-		float curr_rad  = ball_pos_rad[i].z * 1.0;
-		vec3 curr_color = ball_color[i];
+		float curr_r    = ball_pos_rad[i].z * 1.0;
+		vec3 curr_color = hsv2rgb(ball_color[i]);
 
-		float field_str = falloff(uv_corr, curr_pos, curr_rad);
+		float field_str = falloff(uv_corr, curr_pos, curr_r);
 		float field_clamped = clamp(field_str, 0.0, 1.0);
 
 		color += field_clamped * curr_color;

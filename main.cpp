@@ -16,15 +16,14 @@
 
 #define BALL_COUNT 32
 
-// Higher saturation coeff values result on average in more heavily saturated
-// values, higher primary color coeff values give you more primary and fewer
-// secondary color hues.
-#define SATURATION_COEFF 20.0f
-#define PRIMARY_COLOR_COEFF 1.0f
+#define SATURATION_COEFF 9.0f
+#define VALUE_COEFF 12.0f
 
-#define AVG_BALL_RADIUS 0.04f
-#define BALL_RADIUS_DEVIATION 0.003f
-#define MIN_BALL_RADIUS 0.005f
+#define HUE_VELOCITY_FACTOR 0.002f
+
+#define AVG_BALL_RADIUS 0.035f
+#define BALL_RADIUS_DEVIATION 0.007f
+#define MIN_BALL_RADIUS 0.01f
 #define MAX_BALL_RADIUS 0.5f
 
 // Too small and balls will escape, too large and they will oscillate
@@ -235,25 +234,15 @@ static float rnd_f_0to1(std::mt19937 &gen, float lo, float hi)
 	return distr(gen);
 }
 
-static void gen_rnd_hue_vals(std::array<float, 3> &vals, std::mt19937 &gen)
-{
-	std::exponential_distribution<float> secondary(PRIMARY_COLOR_COEFF);
-	std::exponential_distribution<float> primary(SATURATION_COEFF);
-
-	vals[0] =        std::min(secondary(gen), 1.0f);
-	vals[1] =        std::min(primary(gen),   1.0f);
-	vals[2] = 1.0f - std::min(primary(gen),   1.0f);
-}
-
 static void random_saturated_color(struct vec3 *color, std::mt19937 &gen)
 {
-	std::array<float, 3> vals;
-	gen_rnd_hue_vals(vals, gen);
+	std::uniform_real_distribution<float> hue_dist(0.0f, 1.0f);
+	std::exponential_distribution<float>  sat_dist(SATURATION_COEFF);
+	std::exponential_distribution<float>  val_dist(VALUE_COEFF);
 
-	std::shuffle(vals.begin(), vals.end(), gen);
-	color->x = vals[0];
-	color->y = vals[1];
-	color->z = vals[2];
+	color->x = hue_dist(gen);
+	color->y = 1.0f - std::min(sat_dist(gen), 1.0f);
+	color->z = 1.0f - std::min(val_dist(gen), 1.0f);
 }
 
 static float clamp(float f, float lo, float hi)
@@ -269,6 +258,13 @@ static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::mt19937 &gen)
 	ball_pos_rad->x = clamp(coords(gen), 0.0f, 1.0f) * aspect_ratio;
 	ball_pos_rad->y = clamp(coords(gen), 0.0f, 1.0f);
 	ball_pos_rad->z = clamp(radius(gen), MIN_BALL_RADIUS, MAX_BALL_RADIUS);
+}
+
+static void random_ball_hue_velocity(float *hue_velocity, std::mt19937 &gen)
+{
+	std::gamma_distribution<float> distr(7.0f, 2.0f); // TODO
+	float sign = gen() & 1 ? 1.0f : -1.0f;
+	*hue_velocity = distr(gen) * sign * HUE_VELOCITY_FACTOR;
 }
 
 static struct vec2 biased_random_force(const struct vec3 &curr_pos, std::mt19937 &gen)
@@ -323,6 +319,23 @@ static void move_balls(std::vector<struct vec3> &ball_pos_rad,
 	}
 }
 
+static void move_ball_hues(std::vector<struct vec3> &ball_color,
+                           std::vector<float> &ball_hue_velocity,
+                           float step)
+{
+	for (int i = 0; i < ball_color.size(); i++) {
+		const float &hue_v = ball_hue_velocity.at(i);
+		struct vec3 &color = ball_color.at(i);
+		float &hue = color.x;
+
+		hue += hue_v * step;
+		while (hue > 1.0f)
+			hue -= 1.0f;
+		while (hue < 0.0f)
+			hue += 1.0f;
+	}
+}
+
 int main(void)
 {
 	int rv = 0;
@@ -338,6 +351,7 @@ int main(void)
 	std::vector<struct vec3> ball_pos_rad(num_balls);
 	std::vector<struct vec3> ball_color(num_balls);
 	std::vector<struct vec2> ball_velocity(num_balls);
+	std::vector<float> ball_hue_velocity(num_balls);
 
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -373,6 +387,7 @@ int main(void)
 	for (GLuint i = 0; i < num_balls; i++) {
 		random_ball_pos_rad(ball_pos_rad.data() + i, rndgen);
 		random_saturated_color(ball_color.data() + i, rndgen);
+		random_ball_hue_velocity(ball_hue_velocity.data() + i, rndgen);
 	}
 	glUseProgram(prg);
 	update_num_balls(prg, num_balls);
@@ -380,8 +395,11 @@ int main(void)
 
 	while (!glfwWindowShouldClose(window)) {
 		move_balls(ball_pos_rad, ball_velocity, rndgen, 0.01f); // TODO add correct time step
+		move_ball_hues(ball_color, ball_hue_velocity, 0.01f);
 		update_aspect_ratio_maybe(prg);
+
 		update_ball_pos_rad(prg, num_balls, ball_pos_rad.data());
+		update_ball_color(prg, num_balls, ball_color.data());
 
 		process_input(window);
 		glBindVertexArray(vao);
