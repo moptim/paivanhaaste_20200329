@@ -11,6 +11,9 @@ uniform uint  num_balls;
 uniform vec3  ball_pos_rad[MAX_BALL_COUNT];
 uniform vec3  ball_color[MAX_BALL_COUNT];
 
+const float tail_critical_value_0 = 0.10;
+const float tail_critical_value_1 = 0.60;
+
 float dist_sqrd(vec2 a, vec2 b)
 {
 	vec2 delta = a - b;
@@ -30,6 +33,13 @@ vec3 hsv2rgb(vec3 c)
 	return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
+float kill_tail(float f)
+{
+	return f * smoothstep(tail_critical_value_0,
+	                      tail_critical_value_1,
+	                      f);
+}
+
 void main()
 {
 	fragColor = vec4(uv, 1.0, 1.0);
@@ -46,7 +56,7 @@ void main()
 		vec3 curr_color = hsv2rgb(ball_color[i]);
 
 		float field_str = falloff(uv_corr, curr_pos, curr_r);
-		float field_clamped = clamp(field_str, 0.0, 1.0);
+		float field_clamped = min(1.0, kill_tail(field_str));
 
 		color += field_clamped * curr_color;
 		saturation += field_clamped;
