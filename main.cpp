@@ -1,7 +1,6 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
-#include <SDL2/SDL.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -358,7 +357,7 @@ int main(void)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	GLFWwindow *window = glfwCreateWindow(w, h, "Kalja :D", NULL, NULL);
+	GLFWwindow *window = glfwCreateWindow(w, h, "mä nään värejä", NULL, NULL);
 
 	if (window == NULL) {
 		rv = 1;
