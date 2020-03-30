@@ -255,13 +255,13 @@ out:
 	return prg;
 }
 
-static float rnd_f_minmax(std::mt19937 &gen, float lo, float hi)
+static float rnd_f_minmax(std::minstd_rand &gen, float lo, float hi)
 {
 	std::normal_distribution<float> distr(0.0f, 1.0f);
 	return distr(gen);
 }
 
-static void random_saturated_color(struct vec3 *color, std::mt19937 &gen)
+static void random_saturated_color(struct vec3 *color, std::minstd_rand &gen)
 {
 	std::uniform_real_distribution<float> hue_dist(0.0f, 1.0f);
 	std::exponential_distribution<float>  sat_dist(SATURATION_COEFF);
@@ -277,7 +277,7 @@ static float clamp(float f, float lo, float hi)
 	return std::max(std::min(f, hi), lo);
 }
 
-static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::mt19937 &gen)
+static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::minstd_rand &gen)
 {
 	std::normal_distribution<float> coords(0.5f, 0.28f);
 	std::normal_distribution<float> radius(AVG_BALL_RADIUS, BALL_RADIUS_DEVIATION);
@@ -287,26 +287,26 @@ static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::mt19937 &gen)
 	ball_pos_rad->z = clamp(radius(gen), MIN_BALL_RADIUS, MAX_BALL_RADIUS);
 }
 
-static void random_ball_params(struct vec4 *ball_params, std::mt19937 &gen)
+static void random_ball_params(struct vec4 *ball_params, std::minstd_rand &gen)
 {
 	std::gamma_distribution<float> corners_dist(2.9f, 0.35f);
 
 	ball_params->x = std::round(4.0f + corners_dist(gen));
 }
 
-static float random_sign(std::mt19937 &gen)
+static float random_sign(std::minstd_rand &gen)
 {
-	return gen() & 1 ? 1.0f : -1.0f;
+	return gen() & (1 << 16) ? 1.0f : -1.0f;
 }
 
-static void random_ball_hue_velocity(float *hue_velocity, std::mt19937 &gen)
+static void random_ball_hue_velocity(float *hue_velocity, std::minstd_rand &gen)
 {
 	std::gamma_distribution<float> distr(7.0f, 2.0f); // TODO
 	*hue_velocity = distr(gen) * random_sign(gen) * HUE_VELOCITY_FACTOR;
 }
 
 // Rotation / Warp / Plumpness velocities
-static void random_ball_rwp_velocity(struct rwp_vs *rwp, std::mt19937 &gen)
+static void random_ball_rwp_velocity(struct rwp_vs *rwp, std::minstd_rand &gen)
 {
 	std::gamma_distribution<float> dist(12.0f, 0.4f); // TODO
 
@@ -315,7 +315,7 @@ static void random_ball_rwp_velocity(struct rwp_vs *rwp, std::mt19937 &gen)
 	rwp->plp_v = dist(gen) * random_sign(gen) * PLP_SPEED_FACTOR;
 }
 
-static struct vec2 biased_random_force(const struct vec3 &curr_pos, std::mt19937 &gen)
+static struct vec2 biased_random_force(const struct vec3 &curr_pos, std::minstd_rand &gen)
 {
 	const float xlo = 0.0f, xhi = aspect_ratio,
 	            ylo = 0.0f, yhi = 1.0f;
@@ -343,7 +343,7 @@ static struct vec2 biased_random_force(const struct vec3 &curr_pos, std::mt19937
 
 static void move_balls(std::vector<struct vec3> &ball_pos_rad,
                        std::vector<struct vec2> &ball_velocity,
-                       std::mt19937 &gen,
+                       std::minstd_rand &gen,
 		       float step)
 {
 	for (int i = 0; i < ball_pos_rad.size(); i++) {
@@ -416,7 +416,7 @@ int main(void)
 	float time;
 
 	GLuint rndseed = std::chrono::system_clock::now().time_since_epoch().count();
-	std::mt19937 rndgen(rndseed);
+	std::minstd_rand rndgen(rndseed);
 
 	std::uniform_real_distribution<float> startingtime_distr(1e3f, 2e3f);
 	time = startingtime_distr(rndgen);
