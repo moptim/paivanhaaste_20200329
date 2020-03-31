@@ -34,7 +34,7 @@
 // The larger boundary strictness is set, the farther from boundaries the
 // balls will be forced to retreat back towards center. The tendency should
 // be related to sqrt(BIAS_BOUNDARY_STRICTNESS) so large values could be ok
-#define BIAS_BOUNDARY_STRICTNESS 48.0f
+#define BIAS_BOUNDARY_STRICTNESS 64.0f
 #define TARGET_MAX_VELOCITY 0.05f
 
 #define ROT_SPEED_FACTOR   0.10f
@@ -280,7 +280,7 @@ static float clamp(float f, float lo, float hi)
 
 static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::minstd_rand &gen)
 {
-	std::normal_distribution<float> coords(0.5f, 0.28f);
+	std::normal_distribution<float> coords(0.5f, 0.22f);
 	std::normal_distribution<float> radius(AVG_BALL_RADIUS, BALL_RADIUS_DEVIATION);
 
 	ball_pos_rad->x = clamp(coords(gen), 0.0f, 1.0f) * aspect_ratio;
@@ -290,7 +290,7 @@ static void random_ball_pos_rad(struct vec3 *ball_pos_rad, std::minstd_rand &gen
 
 static void random_ball_params(struct vec4 *ball_params, std::minstd_rand &gen)
 {
-	std::gamma_distribution<float> corners_dist(2.9f, 0.35f);
+	std::gamma_distribution<float> corners_dist(5.0f, 0.28f);
 
 	ball_params->x = std::round(4.0f + corners_dist(gen));
 }
