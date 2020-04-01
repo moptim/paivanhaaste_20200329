@@ -37,6 +37,8 @@
 #define BIAS_BOUNDARY_STRICTNESS 64.0f
 #define TARGET_MAX_VELOCITY 0.05f
 
+#define FRICTION_COEFF 0.15f
+
 #define ROT_SPEED_FACTOR   0.10f
 #define WRP_SPEED_FACTOR   0.10f
 #define PLP_SPEED_FACTOR   0.03f
@@ -352,10 +354,19 @@ static void move_balls(std::vector<struct vec3> &ball_pos_rad,
 		struct vec2 &velocity = ball_velocity.at(i);
 
 		// Limit velocities
+		float vx_sqrd = velocity.x * velocity.x;
+		float vy_sqrd = velocity.y * velocity.y;
 		float v_sqrd = velocity.x * velocity.x + velocity.y * velocity.y;
-		float inv_inertia = std::min(1.0f, (TARGET_MAX_VELOCITY * TARGET_MAX_VELOCITY) / v_sqrd);
+		struct vec2 friction_force = {
+			.x = -velocity.x * v_sqrd * FRICTION_COEFF,
+			.y = -velocity.y * v_sqrd * FRICTION_COEFF,
+		};
 
-		struct vec2 force = biased_random_force(pos_rad, gen);
+		struct vec2 rnd_force = biased_random_force(pos_rad, gen);
+		struct vec2 force = {
+			.x = rnd_force.x + friction_force.x,
+			.y = rnd_force.y + friction_force.y,
+		};
 		struct vec2 delta_pos = {
 			.x = velocity.x * step + 0.5f * force.x * step * step,
 			.y = velocity.y * step + 0.5f * force.y * step * step,
@@ -363,8 +374,8 @@ static void move_balls(std::vector<struct vec3> &ball_pos_rad,
 		pos_rad.x += delta_pos.x;
 		pos_rad.y += delta_pos.y;
 
-		velocity.x += force.x * step * inv_inertia;
-		velocity.y += force.y * step * inv_inertia;
+		velocity.x += force.x * step;
+		velocity.y += force.y * step;
 	}
 }
 
