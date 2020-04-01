@@ -9,6 +9,7 @@ layout (location = 0) out vec4 fragColor;
 in vec2 uv;
 
 uniform float aspect_ratio;
+uniform float tail_critical_value;
 uniform uint  num_balls;
 uniform vec3  ball_pos_rad[MAX_BALL_COUNT];
 uniform vec3  ball_color[MAX_BALL_COUNT];
@@ -18,9 +19,6 @@ uniform vec3  ball_color[MAX_BALL_COUNT];
 // z: plumpness factor of star, 0.0 - 1.0
 // w: warp the star
 uniform vec4  ball_params[MAX_BALL_COUNT];
-
-const float tail_critical_value_0 = 0.10;
-const float tail_critical_value_1 = 0.60;
 
 float vec_angle(vec2 delta)
 {
@@ -55,9 +53,7 @@ vec3 hsv2rgb(vec3 c)
 
 float kill_tail(float f)
 {
-	return f * smoothstep(tail_critical_value_0,
-	                      tail_critical_value_1,
-	                      f);
+	return f * smoothstep(tail_critical_value, 1.0, f);
 }
 
 void main()

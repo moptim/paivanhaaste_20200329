@@ -7,7 +7,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <mutex>
 #include <random>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -15,8 +18,10 @@
 
 #define STEP_PER_US_1HZ 1e-8f
 
-#define BALL_COUNT 32
+// At which field strength a pixel should be drawn completely white
+#define INITIAL_TAIL_CRITICAL_CALUE 0.10f
 
+#define BALL_COUNT 32
 #define SATURATION_COEFF 12.0f
 #define VALUE_COEFF 14.0f
 
@@ -37,11 +42,14 @@
 #define BIAS_BOUNDARY_STRICTNESS 64.0f
 #define TARGET_MAX_VELOCITY 0.05f
 
-#define FRICTION_COEFF 0.15f
+#define INITIAL_FRICTION 0.15f
 
 #define ROT_SPEED_FACTOR   0.10f
 #define WRP_SPEED_FACTOR   0.10f
 #define PLP_SPEED_FACTOR   0.03f
+
+#define SHARPNESS_STEP 0.05f
+#define FRICTION_STEP 1.3f // Note: friction grows geometrically
 
 struct vec2 {
 	float x, y;
@@ -71,6 +79,27 @@ struct rwp_vs {
 	{}
 };
 
+struct user_params {
+	float tail_critical_value;
+	float friction;
+	bool do_draw;
+	bool limit_time;
+
+	user_params()
+		: tail_critical_value(INITIAL_TAIL_CRITICAL_CALUE)
+		, friction(INITIAL_FRICTION)
+		, do_draw(true)
+		, limit_time(true)
+	{}
+
+	user_params(float tcv_, float friction_, bool do_draw_, bool limit_time_)
+		: tail_critical_value(tcv_)
+		, friction(friction_)
+		, do_draw(do_draw_)
+		, limit_time(limit_time_)
+	{}
+};
+
 // Hacky.. the flag indicates whether aspect ratio change has been handled
 static float aspect_ratio;
 std::atomic_flag aspect_ratio_clean = ATOMIC_FLAG_INIT;
@@ -78,22 +107,77 @@ std::atomic_flag aspect_ratio_clean = ATOMIC_FLAG_INIT;
 struct {
 	GLuint num_balls_loc;
 	GLuint aspect_ratio_loc;
+	GLuint tail_critical_value_loc;
 	GLuint ball_pos_rad_loc;
 	GLuint ball_color_loc;
 	GLuint ball_params_loc;
 } uniform_locs;
 
+typedef std::function<void(struct user_params *)> key_callback;
+
 typedef std::pair<const char *, GLuint *> uniform_name_loc_mapping;
+typedef std::tuple<int, GLuint, key_callback> key_to_count_mapping;
 
 // God I wish there was std::make_array that would infer its size from
 // initializer list size
-const std::array<uniform_name_loc_mapping, 5> un2l = {
+const std::array<uniform_name_loc_mapping, 6> un2l = {
 	std::make_pair("num_balls", &(uniform_locs.num_balls_loc)),
 	std::make_pair("aspect_ratio", &(uniform_locs.aspect_ratio_loc)),
+	std::make_pair("tail_critical_value", &(uniform_locs.tail_critical_value_loc)),
 	std::make_pair("ball_pos_rad", &(uniform_locs.ball_pos_rad_loc)),
 	std::make_pair("ball_color", &(uniform_locs.ball_color_loc)),
 	std::make_pair("ball_params", &(uniform_locs.ball_params_loc)),
 };
+
+static void sharpen_balls_callback    (struct user_params *);
+static void unsharpen_balls_callback  (struct user_params *);
+static void toggle_draw_callback      (struct user_params *);
+static void toggle_limit_time_callback(struct user_params *);
+static void more_friction_callback    (struct user_params *);
+static void less_friction_callback    (struct user_params *);
+
+std::array<key_to_count_mapping, 6> interesting_keys = {
+	std::make_tuple(GLFW_KEY_UP,   0, sharpen_balls_callback),
+	std::make_tuple(GLFW_KEY_DOWN, 0, unsharpen_balls_callback),
+	std::make_tuple(GLFW_KEY_D,    0, toggle_draw_callback),
+	std::make_tuple(GLFW_KEY_L,    0, toggle_limit_time_callback),
+	std::make_tuple(GLFW_KEY_F,    0, more_friction_callback),
+	std::make_tuple(GLFW_KEY_V,    0, less_friction_callback),
+};
+
+std::mutex key_mtx;
+
+static void sharpen_balls_callback(struct user_params *params)
+{
+	float *tcv = &(params->tail_critical_value);
+	*tcv = std::min(*tcv + SHARPNESS_STEP, 1.0f);
+}
+
+static void unsharpen_balls_callback(struct user_params *params)
+{
+	float *tcv = &(params->tail_critical_value);
+	*tcv = std::max(*tcv - SHARPNESS_STEP, 0.0f);
+}
+
+static void toggle_draw_callback(struct user_params *params)
+{
+	params->do_draw = !(params->do_draw);
+}
+
+static void toggle_limit_time_callback(struct user_params *params)
+{
+	params->limit_time = !(params->limit_time);
+}
+
+static void more_friction_callback(struct user_params *params)
+{
+	params->friction *= FRICTION_STEP;
+}
+
+static void less_friction_callback(struct user_params *params)
+{
+	params->friction *= (1.0f / FRICTION_STEP);
+}
 
 static void get_uniform_locs(GLuint prg)
 {
@@ -135,10 +219,19 @@ out:
 	return rv;
 }
 
-static void process_input(GLFWwindow *window)
+static void process_input(GLFWwindow *window, struct user_params *params)
 {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
+
+	std::lock_guard<std::mutex> lck(key_mtx);
+	for (auto it = interesting_keys.begin(); it != interesting_keys.end(); ++it) {
+		GLuint &count = std::get<1>(*it);
+		auto callback = std::get<2>(*it);
+
+		for (; count > 0; count--)
+			callback(params);
+	}
 }
 
 static void resize_callback(GLFWwindow *window, int w, int h)
@@ -178,6 +271,11 @@ static void update_aspect_ratio_maybe(GLuint prg)
 {
 	if (aspect_ratio_clean.test_and_set())
 		glProgramUniform1f(prg, uniform_locs.aspect_ratio_loc, aspect_ratio);
+}
+
+static void update_tail_cv(GLuint prg, const struct user_params *params)
+{
+	glProgramUniform1f(prg, uniform_locs.tail_critical_value_loc, params->tail_critical_value);
 }
 
 static void gen_vao(GLuint *vao)
@@ -347,7 +445,8 @@ static struct vec2 biased_random_force(const struct vec3 &curr_pos, std::minstd_
 static void move_balls(std::vector<struct vec3> &ball_pos_rad,
                        std::vector<struct vec2> &ball_velocity,
                        std::minstd_rand &gen,
-		       float step)
+		       float step,
+                       float friction)
 {
 	for (int i = 0; i < ball_pos_rad.size(); i++) {
 		struct vec3 &pos_rad  = ball_pos_rad.at(i);
@@ -358,8 +457,8 @@ static void move_balls(std::vector<struct vec3> &ball_pos_rad,
 		float vy_sqrd = velocity.y * velocity.y;
 		float v_sqrd = velocity.x * velocity.x + velocity.y * velocity.y;
 		struct vec2 friction_force = {
-			.x = -velocity.x * v_sqrd * FRICTION_COEFF,
-			.y = -velocity.y * v_sqrd * FRICTION_COEFF,
+			.x = -velocity.x * v_sqrd * friction,
+			.y = -velocity.y * v_sqrd * friction,
 		};
 
 		struct vec2 rnd_force = biased_random_force(pos_rad, gen);
@@ -420,18 +519,32 @@ static void rotate_warp_balls(std::vector<struct vec4> &ball_params,
 	}
 }
 
+static void key_callback_f(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	std::lock_guard<std::mutex> lck(key_mtx);
+
+	for (auto it = interesting_keys.begin(); it != interesting_keys.end(); ++it) {
+		int keycode = std::get<0>(*it);
+		GLuint &count = std::get<1>(*it);
+
+		if (key == keycode && action == GLFW_PRESS)
+			count++;
+	}
+}
+
 int main(void)
 {
 	int rv = 0;
 	GLenum err;
 	GLuint prg, vao;
 	float time;
+	struct user_params params;
 
 	GLFWmonitor *monitor;
 	const GLFWvidmode *mode;
 
 	float us = 0.0f;
-	float step_per_us;
+	float step_per_us, target_frametime_us;
 	auto last_frame = std::chrono::steady_clock::now();
 	GLuint rndseed = last_frame.time_since_epoch().count();
 	std::minstd_rand rndgen(rndseed);
@@ -453,6 +566,7 @@ int main(void)
 	mode    = glfwGetVideoMode(monitor);
 
 	step_per_us = STEP_PER_US_1HZ * (float)mode->refreshRate;
+	target_frametime_us = 1e6f / (float)mode->refreshRate;
 
 	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
 	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
@@ -469,8 +583,10 @@ int main(void)
 		goto out;
 	}
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
 	glfwMakeContextCurrent(window);
 	glfwSetFramebufferSizeCallback(window, resize_callback);
+	glfwSetKeyCallback(window, key_callback_f);
 
 	err = glewInit();
 	if (err != GLEW_OK) {
@@ -500,10 +616,14 @@ int main(void)
 	update_ball_color(prg, num_balls, ball_color.data());
 
 	while (!glfwWindowShouldClose(window)) {
-		float step = us * step_per_us;
-		time += step; 
+		float step;
+		if (params.limit_time)
+			step = step_per_us * us;
+		else
+			step = step_per_us * target_frametime_us;
 
-		move_balls(ball_pos_rad, ball_velocity, rndgen, step);
+		time += step;
+		move_balls(ball_pos_rad, ball_velocity, rndgen, step, params.friction);
 		move_ball_hues(ball_color, ball_hue_velocity, step);
 		rotate_warp_balls(ball_params, ball_rwp_velocity, time);
 		update_aspect_ratio_maybe(prg);
@@ -511,12 +631,16 @@ int main(void)
 		update_ball_pos_rad(prg, num_balls, ball_pos_rad.data());
 		update_ball_color(prg, num_balls, ball_color.data());
 		update_ball_params(prg, num_balls, ball_params.data());
+		update_tail_cv(prg, &params);
 
-		process_input(window);
-		glBindVertexArray(vao);
-		draw();
-		glfwSwapBuffers(window);
 		glfwPollEvents();
+		process_input(window, &params);
+		if (params.do_draw) {
+			glBindVertexArray(vao);
+			draw();
+		}
+		if (params.limit_time || params.do_draw)
+			glfwSwapBuffers(window);
 
 		auto this_frame = std::chrono::steady_clock::now();
 		us = std::chrono::duration_cast<std::chrono::microseconds>(this_frame - last_frame).count();
